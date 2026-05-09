@@ -12,6 +12,7 @@ function NavigationController() {
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'INITIAL_SESSION' && session) router.replace('/(home)');
       else if (event === 'SIGNED_IN') router.replace('/(home)');
+      else if (event === 'SIGNED_OUT') router.replace('/');
     });
     return () => listener.subscription.unsubscribe();
   }, []);
