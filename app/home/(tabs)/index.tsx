@@ -145,7 +145,7 @@ export default function HomeScreen() {
               crpNumber={item.crp_number}
               yearsOfExperience={item.years_of_experience}
               focusArea={item.focus_area}
-              onPress={() => router.push(`/book/${item.id}`)}
+              onPress={() => router.push(`/home/book/${item.id}`)}
             />
           )}
         />
@@ -159,7 +159,7 @@ export default function HomeScreen() {
             </Text>
             <TouchableOpacity
               style={styles.availabilityBtn}
-              onPress={() => router.push('/availability')}
+              onPress={() => router.push('/home/availability')}
             >
               <Text style={styles.availabilityBtnText}>Gerenciar disponibilidade</Text>
             </TouchableOpacity>

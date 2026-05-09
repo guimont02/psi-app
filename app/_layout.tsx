@@ -1,21 +1,38 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { supabase } from '../lib/supabase';
-import { AuthProvider } from '../context/auth';
+import { AuthProvider, useAuth } from '../context/auth';
 import { RegistrationProvider } from '../context/registration';
+import { Session } from '@supabase/supabase-js';
 
 function NavigationController() {
+  const { session, initialized } = useAuth();
   const router = useRouter();
+  const prevSession = useRef<Session | null | undefined>(undefined);
 
   useEffect(() => {
-    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'INITIAL_SESSION' && session) router.replace('/(home)');
-      else if (event === 'SIGNED_IN') router.replace('/(home)');
-      else if (event === 'SIGNED_OUT') router.replace('/');
-    });
-    return () => listener.subscription.unsubscribe();
-  }, []);
+    if (!initialized) return;
+
+    const prev = prevSession.current;
+    prevSession.current = session;
+
+    // Carga inicial
+    if (prev === undefined) {
+      if (session) router.replace('/home');
+      return;
+    }
+
+    // Login
+    if (session && !prev) {
+      router.replace('/home');
+      return;
+    }
+
+    // Logout
+    if (!session && prev) {
+      router.replace('/');
+    }
+  }, [session, initialized]);
 
   return null;
 }
