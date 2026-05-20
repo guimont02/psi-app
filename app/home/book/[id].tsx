@@ -10,6 +10,14 @@ import { colors, fontSize, radius, spacing } from '../../../constants/theme';
 const DAYS_LABEL = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const MONTH_LABEL = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
+function generateMeetLink() {
+  const id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+  return `https://meet.jit.si/psiapp-${id}`;
+}
+
 type Slot = { id: string; day_of_week: number; start_time: string };
 type Psychologist = {
   crp_number: string;
@@ -99,6 +107,7 @@ export default function BookScreen() {
       date: toDateString(selectedDate),
       start_time: selectedSlot.start_time,
       status: 'scheduled',
+      meet_link: generateMeetLink(),
     });
     setBooking(false);
     if (error) {

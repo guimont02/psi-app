@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, Linking, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../../lib/supabase';
 import { useAuth } from '../../../context/auth';
@@ -21,6 +21,7 @@ type PatientAppointment = {
   date: string;
   start_time: string;
   status: Status;
+  meet_link: string | null;
   psychologists: {
     focus_area: string;
     profiles: { full_name: string };
@@ -32,12 +33,8 @@ type PsychologistAppointment = {
   date: string;
   start_time: string;
   status: Status;
+  meet_link: string | null;
 };
-
-function formatDate(dateStr: string) {
-  const d = new Date(dateStr + 'T12:00:00');
-  return `${DAYS[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]}`;
-}
 
 export default function AppointmentsScreen() {
   const { session } = useAuth();
@@ -67,7 +64,7 @@ export default function AppointmentsScreen() {
     if (role === 'patient') {
       const { data } = await supabase
         .from('appointments')
-        .select('id, date, start_time, status, psychologists(focus_area, profiles(full_name))')
+        .select('id, date, start_time, status, meet_link, psychologists(focus_area, profiles(full_name))')
         .eq('patient_id', session!.user.id)
         .order('date', { ascending: true })
         .order('start_time', { ascending: true });
@@ -75,7 +72,7 @@ export default function AppointmentsScreen() {
     } else {
       const { data } = await supabase
         .from('appointments')
-        .select('id, date, start_time, status')
+        .select('id, date, start_time, status, meet_link')
         .eq('psychologist_id', session!.user.id)
         .order('date', { ascending: true })
         .order('start_time', { ascending: true });
@@ -84,42 +81,82 @@ export default function AppointmentsScreen() {
     setLoading(false);
   }
 
-  function renderPatientItem({ item }: { item: PatientAppointment }) {
+  async function handleCancel(id: string) {
+    Alert.alert(
+      'Cancelar consulta',
+      'Tem certeza que deseja cancelar esta consulta? O horário ficará disponível novamente.',
+      [
+        { text: 'Voltar', style: 'cancel' },
+        {
+          text: 'Cancelar consulta',
+          style: 'destructive',
+          onPress: async () => {
+            const { error } = await supabase.from('appointments').delete().eq('id', id);
+            if (error) {
+              Alert.alert('Erro', 'Não foi possível cancelar. Tente novamente.');
+              return;
+            }
+            setAppointments((prev) => (prev as any[]).filter((a) => a.id !== id) as any);
+          },
+        },
+      ]
+    );
+  }
+
+  function renderCard(
+    item: PatientAppointment | PsychologistAppointment,
+    name: string,
+    isPatient: boolean
+  ) {
     const status = STATUS_CONFIG[item.status] ?? STATUS_CONFIG.scheduled;
+    const isScheduled = item.status === 'scheduled';
+
     return (
       <View style={styles.card}>
-        <View style={styles.dateBlock}>
-          <Text style={styles.dateDay}>{new Date(item.date + 'T12:00:00').getDate()}</Text>
-          <Text style={styles.dateMonth}>{MONTHS[new Date(item.date + 'T12:00:00').getMonth()]}</Text>
+        <View style={styles.cardTop}>
+          <View style={styles.dateBlock}>
+            <Text style={styles.dateDay}>{new Date(item.date + 'T12:00:00').getDate()}</Text>
+            <Text style={styles.dateMonth}>{MONTHS[new Date(item.date + 'T12:00:00').getMonth()]}</Text>
+          </View>
+          <View style={styles.cardInfo}>
+            <Text style={styles.cardName}>{name}</Text>
+            <Text style={styles.cardTime}>{item.start_time.slice(0, 5)} · 50 min</Text>
+          </View>
+          <View style={[styles.badge, { backgroundColor: status.color + '20' }]}>
+            <Text style={[styles.badgeText, { color: status.color }]}>{status.label}</Text>
+          </View>
         </View>
-        <View style={styles.cardInfo}>
-          <Text style={styles.cardName}>{item.psychologists.profiles.full_name}</Text>
-          <Text style={styles.cardTime}>{item.start_time.slice(0, 5)} · 50 min</Text>
-        </View>
-        <View style={[styles.badge, { backgroundColor: status.color + '20' }]}>
-          <Text style={[styles.badgeText, { color: status.color }]}>{status.label}</Text>
-        </View>
+
+        {isScheduled && item.meet_link && (
+          <>
+            <TouchableOpacity
+              style={styles.meetBtn}
+              onPress={() => Linking.openURL(item.meet_link!)}
+            >
+              <Text style={styles.meetBtnText}>Entrar na consulta</Text>
+            </TouchableOpacity>
+            <Text style={styles.meetLink} selectable>{item.meet_link}</Text>
+          </>
+        )}
+
+        {isScheduled && isPatient && (
+          <TouchableOpacity
+            style={styles.cancelBtn}
+            onPress={() => handleCancel(item.id)}
+          >
+            <Text style={styles.cancelBtnText}>Cancelar consulta</Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   }
 
+  function renderPatientItem({ item }: { item: PatientAppointment }) {
+    return renderCard(item, item.psychologists.profiles.full_name, true);
+  }
+
   function renderPsychologistItem({ item }: { item: PsychologistAppointment }) {
-    const status = STATUS_CONFIG[item.status] ?? STATUS_CONFIG.scheduled;
-    return (
-      <View style={styles.card}>
-        <View style={styles.dateBlock}>
-          <Text style={styles.dateDay}>{new Date(item.date + 'T12:00:00').getDate()}</Text>
-          <Text style={styles.dateMonth}>{MONTHS[new Date(item.date + 'T12:00:00').getMonth()]}</Text>
-        </View>
-        <View style={styles.cardInfo}>
-          <Text style={styles.cardName}>Consulta</Text>
-          <Text style={styles.cardTime}>{item.start_time.slice(0, 5)} · 50 min</Text>
-        </View>
-        <View style={[styles.badge, { backgroundColor: status.color + '20' }]}>
-          <Text style={[styles.badgeText, { color: status.color }]}>{status.label}</Text>
-        </View>
-      </View>
-    );
+    return renderCard(item, 'Consulta', false);
   }
 
   return (
@@ -165,13 +202,16 @@ const styles = StyleSheet.create({
   title: { fontSize: fontSize.lg, fontWeight: '700', color: colors.textDark },
   list: { padding: spacing.lg, gap: spacing.sm },
   card: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
     padding: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
+    gap: spacing.sm,
+  },
+  cardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.md,
   },
   dateBlock: {
@@ -192,6 +232,34 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
   },
   badgeText: { fontSize: fontSize.xs, fontWeight: '700' },
+  meetBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
+  meetBtnText: {
+    color: colors.surface,
+    fontSize: fontSize.sm,
+    fontWeight: '700',
+  },
+  meetLink: {
+    fontSize: fontSize.xs,
+    color: colors.textLight,
+    textAlign: 'center',
+  },
+  cancelBtn: {
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: colors.error,
+  },
+  cancelBtnText: {
+    color: colors.error,
+    fontSize: fontSize.sm,
+    fontWeight: '700',
+  },
   empty: {
     alignItems: 'center',
     paddingTop: spacing.xxl,
