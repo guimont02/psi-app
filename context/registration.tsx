@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState } from 'react';
-import { FocusArea, UserRole } from '../lib/supabase';
+import { Approach, FocusArea, UserRole } from '../lib/supabase';
 
 export type PatientRegistrationData = {
   role: 'patient';
@@ -16,6 +16,7 @@ export type PsychologistRegistrationData = {
   crp_number: string;
   years_of_experience: string;
   focus_area: FocusArea;
+  approach?: Approach;
 };
 
 export type RegistrationData = PatientRegistrationData | PsychologistRegistrationData;

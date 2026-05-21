@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Input } from '../../components/Input';
 import { Button } from '../../components/Button';
 import { useRegistration } from '../../context/registration';
-import { FocusArea, focusAreaLabels } from '../../lib/supabase';
+import { Approach, approachLabels, FocusArea, focusAreaLabels } from '../../lib/supabase';
 import { colors, fontSize, radius, spacing } from '../../constants/theme';
 
 function formatCPF(value: string) {
@@ -17,6 +17,7 @@ function formatCPF(value: string) {
 }
 
 const FOCUS_AREAS = Object.entries(focusAreaLabels) as [FocusArea, string][];
+const APPROACHES = Object.entries(approachLabels) as [Approach, string][];
 
 export default function RegisterPsychologistScreen() {
   const router = useRouter();
@@ -28,6 +29,7 @@ export default function RegisterPsychologistScreen() {
   const [email, setEmail] = useState('');
   const [yearsOfExperience, setYearsOfExperience] = useState('');
   const [focusArea, setFocusArea] = useState<FocusArea | null>(null);
+  const [approach, setApproach] = useState<Approach | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   function validate() {
@@ -41,6 +43,7 @@ export default function RegisterPsychologistScreen() {
     if (!yearsOfExperience || isNaN(years) || years < 0 || years > 60)
       newErrors.yearsOfExperience = 'Informe os anos de experiência (0–60)';
     if (!focusArea) newErrors.focusArea = 'Selecione uma área de atuação';
+    if (!approach) newErrors.approach = 'Selecione uma abordagem terapêutica';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   }
@@ -55,6 +58,7 @@ export default function RegisterPsychologistScreen() {
       email: email.trim().toLowerCase(),
       years_of_experience: yearsOfExperience,
       focus_area: focusArea!,
+      approach: approach ?? undefined,
     });
     router.push('/auth/set-password');
   }
@@ -134,6 +138,25 @@ export default function RegisterPsychologistScreen() {
               ))}
             </View>
             {errors.focusArea ? <Text style={styles.errorText}>{errors.focusArea}</Text> : null}
+          </View>
+
+          <View style={styles.focusSection}>
+            <Text style={styles.focusLabel}>Abordagem terapêutica</Text>
+            <View style={styles.focusGrid}>
+              {APPROACHES.map(([key, label]) => (
+                <TouchableOpacity
+                  key={key}
+                  style={[styles.chip, approach === key && styles.chipSelected]}
+                  onPress={() => setApproach(key)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.chipText, approach === key && styles.chipTextSelected]}>
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {errors.approach ? <Text style={styles.errorText}>{errors.approach}</Text> : null}
           </View>
 
           <Button title="Continuar" onPress={handleContinue} style={styles.btn} />

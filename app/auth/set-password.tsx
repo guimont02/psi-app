@@ -60,6 +60,7 @@ export default function SetPasswordScreen() {
           cpf: psy.cpf,
           years_of_experience: parseInt(psy.years_of_experience, 10),
           focus_area: psy.focus_area,
+          approach: psy.approach,
         });
         if (psyError) throw psyError;
       } else {
@@ -73,7 +74,12 @@ export default function SetPasswordScreen() {
       setRegistrationData(null);
     } catch (err: any) {
       setLoading(false);
-      Alert.alert('Erro no cadastro', err.message || 'Tente novamente mais tarde.');
+      console.error('[register] erro completo:', JSON.stringify(err, null, 2));
+      console.error('[register] error object:', err);
+      Alert.alert(
+        'Erro no cadastro',
+        `${err.message || 'Tente novamente.'}\n\ncode: ${err.code ?? '-'}\ndetails: ${err.details ?? '-'}\nhint: ${err.hint ?? '-'}`
+      );
     }
   }
 

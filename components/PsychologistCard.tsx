@@ -8,15 +8,34 @@ type Props = {
   yearsOfExperience: number;
   focusArea: FocusArea;
   onPress?: () => void;
+  highlight?: boolean;
+  badge?: string;
 };
 
-export function PsychologistCard({ fullName, crpNumber, yearsOfExperience, focusArea, onPress }: Props) {
+export function PsychologistCard({
+  fullName,
+  crpNumber,
+  yearsOfExperience,
+  focusArea,
+  onPress,
+  highlight,
+  badge,
+}: Props) {
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={onPress ? 0.75 : 1}>
-      <View style={styles.avatar}>
+    <TouchableOpacity
+      style={[styles.card, highlight && styles.cardHighlight]}
+      onPress={onPress}
+      activeOpacity={onPress ? 0.75 : 1}
+    >
+      <View style={[styles.avatar, highlight && styles.avatarHighlight]}>
         <Text style={styles.avatarText}>{fullName.charAt(0)}</Text>
       </View>
       <View style={styles.info}>
+        {badge ? (
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{badge}</Text>
+          </View>
+        ) : null}
         <Text style={styles.name}>{fullName}</Text>
         <Text style={styles.crp}>{crpNumber}</Text>
         <View style={styles.tags}>
@@ -46,6 +65,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     overflow: 'hidden',
   },
+  cardHighlight: {
+    backgroundColor: colors.success + '15',
+    borderColor: colors.success,
+    borderWidth: 2,
+  },
+  badge: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.success,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    marginBottom: spacing.xs,
+  },
+  badgeText: {
+    color: colors.surface,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
   avatar: {
     width: 52,
     height: 52,
@@ -54,6 +92,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: spacing.md,
+  },
+  avatarHighlight: {
+    backgroundColor: colors.success,
   },
   avatarText: {
     color: colors.surface,

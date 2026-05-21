@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, Alert, FlatList, ActivityIndicator, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { supabase, FocusArea, focusAreaLabels } from '../../../lib/supabase';
+import { supabase, FocusArea, focusAreaLabels, MatchedPsychologist } from '../../../lib/supabase';
 import { useAuth } from '../../../context/auth';
 import { Button } from '../../../components/Button';
 import { PsychologistCard } from '../../../components/PsychologistCard';
@@ -21,17 +21,32 @@ type Psychologist = {
   profiles: { full_name: string };
 };
 
+// Linha exibida na lista de pacientes — pode vir do RPC de match OU do fetch completo.
+type ListItem = {
+  id: string;
+  full_name: string;
+  crp_number: string;
+  years_of_experience: number;
+  focus_area: FocusArea;
+  isPrimary: boolean;
+};
+
 const FOCUS_AREAS = Object.keys(focusAreaLabels) as FocusArea[];
 
 export default function HomeScreen() {
   const { session } = useAuth();
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [psychologists, setPsychologists] = useState<Psychologist[]>([]);
-  const [loadingPsychologists, setLoadingPsychologists] = useState(false);
+  const [loadingList, setLoadingList] = useState(false);
   const [selectedFocusArea, setSelectedFocusArea] = useState<FocusArea | null>(null);
   const [sortDesc, setSortDesc] = useState(true);
 
+  const [hasPreferences, setHasPreferences] = useState<boolean | null>(null);
+  const [bookedPsychologistId, setBookedPsychologistId] = useState<string | null>(null);
+  const [matches, setMatches] = useState<MatchedPsychologist[]>([]);
+  const [allPsychologists, setAllPsychologists] = useState<Psychologist[]>([]);
+
+  // Carrega perfil
   useEffect(() => {
     setProfile(null);
     if (!session) return;
@@ -43,28 +58,109 @@ export default function HomeScreen() {
       .then(({ data }) => { if (data) setProfile(data); });
   }, [session]);
 
+  // Carrega: tem preferências? agendou com alguém?
   useEffect(() => {
-    if (profile?.role !== 'patient') return;
-    setLoadingPsychologists(true);
-    supabase
-      .from('psychologists')
-      .select('id, crp_number, years_of_experience, focus_area, profiles(full_name)')
-      .then(({ data }) => {
-        if (data) setPsychologists(data as Psychologist[]);
-        setLoadingPsychologists(false);
-      });
-  }, [profile]);
+    if (profile?.role !== 'patient' || !session) return;
 
-  const filteredPsychologists = useMemo(() => {
-    let list = selectedFocusArea
-      ? psychologists.filter((p) => p.focus_area === selectedFocusArea)
-      : psychologists;
-    return [...list].sort((a, b) =>
-      sortDesc
-        ? b.years_of_experience - a.years_of_experience
-        : a.years_of_experience - b.years_of_experience
-    );
-  }, [psychologists, selectedFocusArea, sortDesc]);
+    supabase
+      .from('patients')
+      .select('preferred_focus_area')
+      .eq('id', session.user.id)
+      .single()
+      .then(({ data }) => setHasPreferences(!!data?.preferred_focus_area));
+
+    supabase
+      .from('appointments')
+      .select('psychologist_id, created_at')
+      .eq('patient_id', session.user.id)
+      .neq('status', 'cancelled')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .then(({ data }) => setBookedPsychologistId(data?.[0]?.psychologist_id ?? null));
+  }, [profile, session]);
+
+  // Carrega lista: matches (se já respondeu) ou lista completa
+  useEffect(() => {
+    if (profile?.role !== 'patient' || !session || hasPreferences === null) return;
+    setLoadingList(true);
+
+    if (hasPreferences) {
+      supabase
+        .rpc('match_psychologists', { patient_uuid: session.user.id })
+        .then(({ data, error }) => {
+          if (error) {
+            console.error('[home] erro ao buscar matches:', JSON.stringify(error, null, 2));
+          }
+          setMatches((data ?? []) as MatchedPsychologist[]);
+          setLoadingList(false);
+        });
+    } else {
+      supabase
+        .from('psychologists')
+        .select('id, crp_number, years_of_experience, focus_area, profiles(full_name)')
+        .then(({ data }) => {
+          setAllPsychologists((data ?? []) as Psychologist[]);
+          setLoadingList(false);
+        });
+    }
+  }, [profile, session, hasPreferences]);
+
+  // Monta a lista final aplicando filtros/ordenação e destacando o agendado
+  const listItems: ListItem[] = useMemo(() => {
+    if (hasPreferences) {
+      // Matches: psicólogo agendado vem primeiro e marcado como primary
+      const items: ListItem[] = matches.map((m) => ({
+        id: m.id,
+        full_name: m.full_name,
+        crp_number: m.crp_number,
+        years_of_experience: m.years_of_experience,
+        focus_area: m.focus_area,
+        isPrimary: m.id === bookedPsychologistId,
+      }));
+      return items.sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary));
+    }
+    // Sem preferências: lista completa com filtros existentes
+    const filtered = selectedFocusArea
+      ? allPsychologists.filter((p) => p.focus_area === selectedFocusArea)
+      : allPsychologists;
+    return [...filtered]
+      .sort((a, b) =>
+        sortDesc
+          ? b.years_of_experience - a.years_of_experience
+          : a.years_of_experience - b.years_of_experience
+      )
+      .map((p) => ({
+        id: p.id,
+        full_name: p.profiles.full_name,
+        crp_number: p.crp_number,
+        years_of_experience: p.years_of_experience,
+        focus_area: p.focus_area,
+        isPrimary: false,
+      }));
+  }, [hasPreferences, matches, allPsychologists, bookedPsychologistId, selectedFocusArea, sortDesc]);
+
+  // 3 estados do banner
+  const bannerCopy = useMemo(() => {
+    if (!hasPreferences) {
+      return {
+        title: 'Encontre seu psicólogo ideal',
+        subtitle: 'Responda 3 perguntas e receba 3 recomendações personalizadas',
+        target: '/home/quiz' as const,
+      };
+    }
+    if (bookedPsychologistId) {
+      return {
+        title: 'Você já encontrou seu psicólogo ideal',
+        subtitle: 'Quer refazer ou mudar para uma experiência nova?',
+        target: '/home/quiz' as const,
+      };
+    }
+    return {
+      title: 'Ver meus matches',
+      subtitle: 'Reveja os 3 psicólogos mais alinhados com você',
+      target: '/home/match' as const,
+    };
+  }, [hasPreferences, bookedPsychologistId]);
 
   async function handleSignOut() {
     Alert.alert('Sair', 'Deseja sair da sua conta?', [
@@ -78,6 +174,7 @@ export default function HomeScreen() {
   }
 
   const isPatient = profile?.role === 'patient';
+  const showFilters = isPatient && !hasPreferences;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -91,60 +188,80 @@ export default function HomeScreen() {
 
       {isPatient ? (
         <FlatList
-          data={filteredPsychologists}
+          data={listItems}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
           ListHeaderComponent={
             <View>
-              <Text style={styles.listTitle}>Psicólogos disponíveis</Text>
-
-              {/* Filtro: Área de foco */}
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.chipsScroll}
-                contentContainerStyle={styles.chipsContent}
+              {/* Banner do match (3 estados) */}
+              <TouchableOpacity
+                style={styles.matchBanner}
+                onPress={() => router.push(bannerCopy.target)}
+                activeOpacity={0.85}
               >
-                <TouchableOpacity
-                  style={[styles.chip, selectedFocusArea === null && styles.chipActive]}
-                  onPress={() => setSelectedFocusArea(null)}
-                >
-                  <Text style={[styles.chipText, selectedFocusArea === null && styles.chipTextActive]}>
-                    Todos
-                  </Text>
-                </TouchableOpacity>
-                {FOCUS_AREAS.map((area) => (
-                  <TouchableOpacity
-                    key={area}
-                    style={[styles.chip, selectedFocusArea === area && styles.chipActive]}
-                    onPress={() => setSelectedFocusArea(selectedFocusArea === area ? null : area)}
+                <Text style={styles.matchBannerEmoji}>🎯</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.matchBannerTitle}>{bannerCopy.title}</Text>
+                  <Text style={styles.matchBannerSubtitle}>{bannerCopy.subtitle}</Text>
+                </View>
+                <Text style={styles.matchBannerArrow}>→</Text>
+              </TouchableOpacity>
+
+              <Text style={styles.listTitle}>
+                {hasPreferences ? 'Seus matches' : 'Psicólogos disponíveis'}
+              </Text>
+
+              {showFilters ? (
+                <>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.chipsScroll}
+                    contentContainerStyle={styles.chipsContent}
                   >
-                    <Text style={[styles.chipText, selectedFocusArea === area && styles.chipTextActive]}>
-                      {focusAreaLabels[area]}
+                    <TouchableOpacity
+                      style={[styles.chip, selectedFocusArea === null && styles.chipActive]}
+                      onPress={() => setSelectedFocusArea(null)}
+                    >
+                      <Text style={[styles.chipText, selectedFocusArea === null && styles.chipTextActive]}>
+                        Todos
+                      </Text>
+                    </TouchableOpacity>
+                    {FOCUS_AREAS.map((area) => (
+                      <TouchableOpacity
+                        key={area}
+                        style={[styles.chip, selectedFocusArea === area && styles.chipActive]}
+                        onPress={() => setSelectedFocusArea(selectedFocusArea === area ? null : area)}
+                      >
+                        <Text style={[styles.chipText, selectedFocusArea === area && styles.chipTextActive]}>
+                          {focusAreaLabels[area]}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+
+                  <TouchableOpacity style={styles.sortButton} onPress={() => setSortDesc((prev) => !prev)}>
+                    <Text style={styles.sortText}>
+                      Experiência: {sortDesc ? 'Maior → Menor' : 'Menor → Maior'}
                     </Text>
                   </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              {/* Filtro: Ordenar por experiência */}
-              <TouchableOpacity style={styles.sortButton} onPress={() => setSortDesc((prev) => !prev)}>
-                <Text style={styles.sortText}>
-                  Experiência: {sortDesc ? 'Maior → Menor' : 'Menor → Maior'}
-                </Text>
-              </TouchableOpacity>
+                </>
+              ) : null}
             </View>
           }
           ListEmptyComponent={
-            loadingPsychologists
+            loadingList
               ? <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xl }} />
               : <Text style={styles.emptyText}>Nenhum psicólogo encontrado.</Text>
           }
           renderItem={({ item }) => (
             <PsychologistCard
-              fullName={item.profiles.full_name}
+              fullName={item.full_name}
               crpNumber={item.crp_number}
               yearsOfExperience={item.years_of_experience}
               focusArea={item.focus_area}
+              highlight={item.isPrimary}
+              badge={item.isPrimary ? 'SEU PSICÓLOGO' : undefined}
               onPress={() => router.push(`/home/book/${item.id}`)}
             />
           )}
@@ -185,6 +302,29 @@ const styles = StyleSheet.create({
   greeting: { fontSize: fontSize.lg, fontWeight: '700', color: colors.textDark },
   role: { fontSize: fontSize.sm, color: colors.textLight, marginTop: 2 },
   list: { padding: spacing.lg },
+  matchBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+    gap: spacing.md,
+  },
+  matchBannerEmoji: { fontSize: 32 },
+  matchBannerTitle: {
+    fontSize: fontSize.md,
+    fontWeight: '800',
+    color: colors.surface,
+    marginBottom: 2,
+  },
+  matchBannerSubtitle: {
+    fontSize: fontSize.xs,
+    color: colors.surface,
+    opacity: 0.9,
+    lineHeight: 16,
+  },
+  matchBannerArrow: { fontSize: fontSize.xl, color: colors.surface, fontWeight: '700' },
   listTitle: {
     fontSize: fontSize.xl,
     fontWeight: '700',
