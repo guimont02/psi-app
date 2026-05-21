@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, Linking, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { supabase } from '../../../lib/supabase';
 import { useAuth } from '../../../context/auth';
 import { colors, fontSize, radius, spacing } from '../../../constants/theme';
@@ -34,10 +35,14 @@ type PsychologistAppointment = {
   start_time: string;
   status: Status;
   meet_link: string | null;
+  patients: {
+    profiles: { full_name: string } | null;
+  } | null;
 };
 
 export default function AppointmentsScreen() {
   const { session } = useAuth();
+  const router = useRouter();
   const [role, setRole] = useState<'patient' | 'psychologist' | null>(null);
   const [appointments, setAppointments] = useState<PatientAppointment[] | PsychologistAppointment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,11 +77,11 @@ export default function AppointmentsScreen() {
     } else {
       const { data } = await supabase
         .from('appointments')
-        .select('id, date, start_time, status, meet_link')
+        .select('id, date, start_time, status, meet_link, patients(profiles(full_name))')
         .eq('psychologist_id', session!.user.id)
         .order('date', { ascending: true })
         .order('start_time', { ascending: true });
-      if (data) setAppointments(data as PsychologistAppointment[]);
+      if (data) setAppointments(data as unknown as PsychologistAppointment[]);
     }
     setLoading(false);
   }
@@ -147,6 +152,15 @@ export default function AppointmentsScreen() {
             <Text style={styles.cancelBtnText}>Cancelar consulta</Text>
           </TouchableOpacity>
         )}
+
+        {!isPatient && (
+          <TouchableOpacity
+            style={styles.notesBtn}
+            onPress={() => router.push(`/home/notes/${item.id}`)}
+          >
+            <Text style={styles.notesBtnText}>📓 Notas da sessão</Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   }
@@ -156,7 +170,7 @@ export default function AppointmentsScreen() {
   }
 
   function renderPsychologistItem({ item }: { item: PsychologistAppointment }) {
-    return renderCard(item, 'Consulta', false);
+    return renderCard(item, item.patients?.profiles?.full_name ?? 'Paciente', false);
   }
 
   return (
@@ -257,6 +271,19 @@ const styles = StyleSheet.create({
   },
   cancelBtnText: {
     color: colors.error,
+    fontSize: fontSize.sm,
+    fontWeight: '700',
+  },
+  notesBtn: {
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    backgroundColor: colors.secondary + '15',
+    borderWidth: 1.5,
+    borderColor: colors.secondary,
+  },
+  notesBtnText: {
+    color: colors.secondary,
     fontSize: fontSize.sm,
     fontWeight: '700',
   },
