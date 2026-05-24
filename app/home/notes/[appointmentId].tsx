@@ -36,6 +36,14 @@ type SessionNote = {
   updated_at: string;
 };
 
+type TranscriptStatus = 'pending' | 'recording' | 'processing' | 'completed' | 'failed';
+
+type SessionTranscript = {
+  status: TranscriptStatus;
+  summary: string | null;
+  transcript: string | null;
+};
+
 export default function NotesScreen() {
   const { appointmentId } = useLocalSearchParams<{ appointmentId: string }>();
   const { session } = useAuth();
@@ -47,6 +55,7 @@ export default function NotesScreen() {
   const [note, setNote] = useState<SessionNote | null>(null);
   const [content, setContent] = useState('');
   const [role, setRole] = useState<'patient' | 'psychologist' | null>(null);
+  const [transcript, setTranscript] = useState<SessionTranscript | null>(null);
 
   useEffect(() => {
     if (!session || !appointmentId) return;
@@ -56,7 +65,7 @@ export default function NotesScreen() {
   async function loadData() {
     setLoading(true);
 
-    const [{ data: profileData }, { data: apptData }, { data: noteData }] = await Promise.all([
+    const [{ data: profileData }, { data: apptData }, { data: noteData }, { data: transcriptData }] = await Promise.all([
       supabase.from('profiles').select('role').eq('id', session!.user.id).single(),
       supabase
         .from('appointments')
@@ -64,6 +73,7 @@ export default function NotesScreen() {
         .eq('id', appointmentId)
         .single(),
       supabase.from('session_notes').select('id, content, updated_at').eq('appointment_id', appointmentId).maybeSingle(),
+      supabase.from('session_transcripts').select('status, summary, transcript').eq('appointment_id', appointmentId).maybeSingle(),
     ]);
 
     if (profileData) setRole(profileData.role as 'patient' | 'psychologist');
@@ -72,6 +82,7 @@ export default function NotesScreen() {
       setNote(noteData as SessionNote);
       setContent(noteData.content);
     }
+    if (transcriptData) setTranscript(transcriptData as SessionTranscript);
     setLoading(false);
   }
 
@@ -105,6 +116,11 @@ export default function NotesScreen() {
     Alert.alert('Salvo!', 'Suas anotações foram salvas.', [
       { text: 'OK', onPress: () => router.back() },
     ]);
+  }
+
+  function applySummary() {
+    if (!transcript?.summary) return;
+    setContent((prev) => (prev.trim() ? `${prev}\n\n${transcript.summary}` : transcript.summary!));
   }
 
   if (loading) {
@@ -184,6 +200,28 @@ export default function NotesScreen() {
                 onPress={handleSave}
                 style={{ marginTop: spacing.lg }}
               />
+
+              {transcript ? (
+                <View style={styles.aiBox}>
+                  <Text style={styles.aiTitle}>🎙️ Transcrição automática</Text>
+                  {transcript.status === 'recording' ? (
+                    <Text style={styles.aiInfo}>Transcrição em andamento durante a sessão…</Text>
+                  ) : transcript.status === 'processing' ? (
+                    <Text style={styles.aiInfo}>Gerando resumo com IA…</Text>
+                  ) : transcript.status === 'failed' ? (
+                    <Text style={styles.aiInfo}>Não foi possível gerar a transcrição desta sessão.</Text>
+                  ) : transcript.status === 'completed' && transcript.summary ? (
+                    <>
+                      <Text style={styles.aiContent}>{transcript.summary}</Text>
+                      <TouchableOpacity style={styles.applyBtn} onPress={applySummary}>
+                        <Text style={styles.applyBtnText}>Usar resumo na nota</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <Text style={styles.aiInfo}>Aguardando transcrição.</Text>
+                  )}
+                </View>
+              ) : null}
             </>
           ) : (
             <>
@@ -283,6 +321,42 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     color: colors.textDark,
     lineHeight: 22,
+  },
+  aiBox: {
+    marginTop: spacing.xl,
+    backgroundColor: colors.primary + '0D',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.primary + '40',
+    padding: spacing.md,
+  },
+  aiTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: '700',
+    color: colors.primary,
+    marginBottom: spacing.sm,
+  },
+  aiInfo: {
+    fontSize: fontSize.sm,
+    color: colors.textLight,
+    lineHeight: 20,
+  },
+  aiContent: {
+    fontSize: fontSize.md,
+    color: colors.textDark,
+    lineHeight: 22,
+  },
+  applyBtn: {
+    marginTop: spacing.md,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+  },
+  applyBtnText: {
+    color: colors.surface,
+    fontSize: fontSize.sm,
+    fontWeight: '700',
   },
   emptyBox: {
     backgroundColor: colors.surface,

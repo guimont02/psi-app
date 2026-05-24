@@ -46,6 +46,7 @@ export default function AppointmentsScreen() {
   const [role, setRole] = useState<'patient' | 'psychologist' | null>(null);
   const [appointments, setAppointments] = useState<PatientAppointment[] | PsychologistAppointment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [transcribingId, setTranscribingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!session) return;
@@ -108,6 +109,34 @@ export default function AppointmentsScreen() {
     );
   }
 
+  function handleStartTranscription(id: string) {
+    Alert.alert(
+      'Iniciar transcrição',
+      'Um assistente de transcrição entrará na videochamada para gravar a sessão e gerar um resumo com IA. Confirme que o paciente foi informado e consentiu com a gravação.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Confirmar e iniciar',
+          onPress: async () => {
+            setTranscribingId(id);
+            const { data, error } = await supabase.functions.invoke('start-transcription', {
+              body: { appointmentId: id },
+            });
+            setTranscribingId(null);
+            if (error || data?.error) {
+              Alert.alert('Erro', 'Não foi possível iniciar a transcrição. Tente novamente.');
+              return;
+            }
+            Alert.alert(
+              'Transcrição iniciada',
+              'O assistente vai entrar na sala — admita-o na videochamada quando ele aparecer. O resumo ficará disponível em Notas da sessão após a consulta.'
+            );
+          },
+        },
+      ]
+    );
+  }
+
   function renderCard(
     item: PatientAppointment | PsychologistAppointment,
     name: string,
@@ -150,6 +179,20 @@ export default function AppointmentsScreen() {
             onPress={() => handleCancel(item.id)}
           >
             <Text style={styles.cancelBtnText}>Cancelar consulta</Text>
+          </TouchableOpacity>
+        )}
+
+        {!isPatient && isScheduled && item.meet_link && (
+          <TouchableOpacity
+            style={styles.transcribeBtn}
+            disabled={transcribingId === item.id}
+            onPress={() => handleStartTranscription(item.id)}
+          >
+            {transcribingId === item.id ? (
+              <ActivityIndicator color={colors.primary} size="small" />
+            ) : (
+              <Text style={styles.transcribeBtnText}>🎙️ Iniciar transcrição</Text>
+            )}
           </TouchableOpacity>
         )}
 
@@ -271,6 +314,21 @@ const styles = StyleSheet.create({
   },
   cancelBtnText: {
     color: colors.error,
+    fontSize: fontSize.sm,
+    fontWeight: '700',
+  },
+  transcribeBtn: {
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 40,
+    backgroundColor: colors.primary + '15',
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+  },
+  transcribeBtnText: {
+    color: colors.primary,
     fontSize: fontSize.sm,
     fontWeight: '700',
   },

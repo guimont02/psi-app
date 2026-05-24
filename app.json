@@ -34,6 +34,19 @@
       "expo-router",
       "expo-secure-store",
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "cc9ebe11-67c4-46ea-9661-f2cb4370b66d"
+      }
+    },
+    "owner": "monteiro_02",
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/cc9ebe11-67c4-46ea-9661-f2cb4370b66d"
+    }
   }
 }

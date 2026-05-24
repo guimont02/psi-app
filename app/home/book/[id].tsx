@@ -10,14 +10,6 @@ import { colors, fontSize, radius, spacing } from '../../../constants/theme';
 const DAYS_LABEL = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const MONTH_LABEL = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
-function generateMeetLink() {
-  const id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-  });
-  return `https://meet.jit.si/psiapp-${id}`;
-}
-
 type Slot = { id: string; day_of_week: number; start_time: string };
 type Psychologist = {
   crp_number: string;
@@ -100,6 +92,21 @@ export default function BookScreen() {
   async function handleBook() {
     if (!selectedDate || !selectedSlot) return;
     setBooking(true);
+
+    const { data: linkData, error: linkError } = await supabase.functions.invoke('create-meet-link', {
+      body: {
+        date: toDateString(selectedDate),
+        startTime: selectedSlot.start_time,
+        title: `Consulta · ${psychologist?.profiles.full_name ?? 'PsiApp'}`,
+      },
+    });
+
+    if (linkError || !linkData?.meetLink) {
+      setBooking(false);
+      Alert.alert('Erro', 'Não foi possível gerar o link da videochamada. Tente novamente.');
+      return;
+    }
+
     const { error } = await supabase.from('appointments').insert({
       psychologist_id: id,
       patient_id: session!.user.id,
@@ -107,7 +114,7 @@ export default function BookScreen() {
       date: toDateString(selectedDate),
       start_time: selectedSlot.start_time,
       status: 'scheduled',
-      meet_link: generateMeetLink(),
+      meet_link: linkData.meetLink,
     });
     setBooking(false);
     if (error) {
