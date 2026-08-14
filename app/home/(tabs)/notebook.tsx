@@ -33,8 +33,9 @@ export default function NotebookScreen() {
 
   async function load() {
     setLoading(true);
+    // Só devolutivas publicadas chegam aqui — a policy filtra o resto.
     const { data, error } = await supabase
-      .from('session_notes')
+      .from('session_shared_notes')
       .select('id, content, updated_at, appointment_id, appointments(date, start_time, psychologists(profiles(full_name)))')
       .eq('patient_id', session!.user.id)
       .order('updated_at', { ascending: false });
@@ -77,7 +78,7 @@ export default function NotebookScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Meu caderno</Text>
-        <Text style={styles.subtitle}>Notas das suas sessões</Text>
+        <Text style={styles.subtitle}>Registros das suas sessões</Text>
       </View>
 
       {loading ? (
@@ -93,7 +94,7 @@ export default function NotebookScreen() {
               <Text style={styles.emptyEmoji}>📓</Text>
               <Text style={styles.emptyTitle}>Caderno vazio</Text>
               <Text style={styles.emptyText}>
-                As notas das suas sessões aparecerão aqui assim que seu psicólogo registrá-las.
+                Os registros das suas sessões aparecerão aqui assim que seu psicólogo compartilhá-los.
               </Text>
             </View>
           }
