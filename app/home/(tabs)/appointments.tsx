@@ -17,6 +17,13 @@ const STATUS_CONFIG = {
 
 type Status = keyof typeof STATUS_CONFIG;
 
+function todayISO() {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
 type PatientAppointment = {
   id: string;
   date: string;
@@ -74,7 +81,21 @@ export default function AppointmentsScreen() {
         .eq('patient_id', session!.user.id)
         .order('date', { ascending: true })
         .order('start_time', { ascending: true });
-      if (data) setAppointments(data as PatientAppointment[]);
+      if (data) {
+        const today = todayISO();
+        const list = data as PatientAppointment[];
+
+        // Consultas que já passaram somem da lista do paciente; as que ficaram
+        // pendentes viram 'completed' para o psicólogo ver o histórico correto.
+        const toComplete = list
+          .filter((a) => a.date < today && a.status === 'scheduled')
+          .map((a) => a.id);
+        if (toComplete.length > 0) {
+          await supabase.from('appointments').update({ status: 'completed' }).in('id', toComplete);
+        }
+
+        setAppointments(list.filter((a) => a.date >= today));
+      }
     } else {
       const { data } = await supabase
         .from('appointments')
