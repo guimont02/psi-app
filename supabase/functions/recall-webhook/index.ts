@@ -9,17 +9,78 @@
 //   RECALL_API_KEY
 //   RECALL_REGION
 //   ANTHROPIC_API_KEY
-//   RECALL_WEBHOOK_SECRET   (opcional, p/ validar a origem)
+//   RECALL_WEBHOOK_SECRET   (signing secret do endpoint no Recall, whsec_...)
 // (SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY são injetados automaticamente)
 //
 // IMPORTANTE: deployar com verify_jwt = false — o Recall não manda
-// JWT do Supabase. Em produção, valide a assinatura do webhook do
-// Recall (Svix) antes de confiar no payload.
+// JWT do Supabase. Quem autentica a origem aqui é a assinatura Svix,
+// validada antes de qualquer uso do payload; sem o secret configurado
+// a função rejeita tudo.
 // ============================================================
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
+
+// Janela aceita para o timestamp assinado, em segundos.
+const WEBHOOK_TOLERANCE_SECONDS = 5 * 60;
+
+function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
+
+function decodeBase64(value: string): Uint8Array {
+  return Uint8Array.from(atob(value), (c) => c.charCodeAt(0));
+}
+
+// Valida a assinatura Svix que o Recall envia. Sem isso, qualquer um com a
+// URL desta função poderia injetar uma transcrição falsa no caderno.
+async function verifySvixSignature(req: Request, rawBody: string): Promise<boolean> {
+  const secret = Deno.env.get('RECALL_WEBHOOK_SECRET');
+  if (!secret) {
+    console.error('[recall-webhook] RECALL_WEBHOOK_SECRET não configurado');
+    return false;
+  }
+
+  const id = req.headers.get('svix-id') ?? req.headers.get('webhook-id');
+  const timestamp = req.headers.get('svix-timestamp') ?? req.headers.get('webhook-timestamp');
+  const signatures = req.headers.get('svix-signature') ?? req.headers.get('webhook-signature');
+  if (!id || !timestamp || !signatures) return false;
+
+  // Sem a janela de tempo, um payload legítimo capturado uma única vez
+  // poderia ser reenviado para sempre, já que a assinatura continua válida.
+  const ageSeconds = Math.abs(Date.now() / 1000 - Number(timestamp));
+  if (!Number.isFinite(ageSeconds) || ageSeconds > WEBHOOK_TOLERANCE_SECONDS) return false;
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    decodeBase64(secret.replace(/^whsec_/, '')),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signed = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    new TextEncoder().encode(`${id}.${timestamp}.${rawBody}`),
+  );
+  const expected = new Uint8Array(signed);
+
+  // O header vem como "v1,<assinatura> v1,<assinatura>" — durante uma rotação
+  // de secret o Svix manda mais de uma, e basta uma bater.
+  return signatures.split(' ').some((entry) => {
+    const [version, value] = entry.split(',');
+    if (version !== 'v1' || !value) return false;
+    try {
+      return timingSafeEqual(expected, decodeBase64(value));
+    } catch {
+      return false;
+    }
+  });
+}
 
 const SUMMARY_SYSTEM = `Você é um assistente clínico que resume sessões de psicoterapia para o psicólogo revisar. Escreva em português do Brasil, de forma objetiva e profissional.
 
@@ -95,7 +156,15 @@ function flattenTranscript(payload: unknown): string {
 
 Deno.serve(async (req) => {
   try {
-    const event = await req.json();
+    // A assinatura cobre o corpo exato recebido, então ele precisa ser lido
+    // como texto e só depois parseado — reserializar mudaria os bytes.
+    const rawBody = await req.text();
+    if (!(await verifySvixSignature(req, rawBody))) {
+      console.error('[recall-webhook] assinatura inválida — requisição descartada');
+      return new Response('unauthorized', { status: 401 });
+    }
+
+    const event = JSON.parse(rawBody);
     const type: string = event.event ?? event.type ?? '';
     const data = event.data ?? {};
     const botId: string | undefined =
@@ -157,8 +226,10 @@ Deno.serve(async (req) => {
 
     return new Response('ok', { status: 200 });
   } catch (err) {
+    // O detalhe fica no log; a resposta é genérica porque este endpoint é
+    // público e a mensagem de erro pode expor detalhes internos.
     console.error('[recall-webhook]', String(err));
-    return new Response(JSON.stringify({ error: String(err) }), {
+    return new Response(JSON.stringify({ error: 'internal error' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
