@@ -42,6 +42,7 @@ type PsychologistAppointment = {
   start_time: string;
   status: Status;
   meet_link: string | null;
+  patient_id: string;
   patients: {
     profiles: { full_name: string } | null;
   } | null;
@@ -54,6 +55,7 @@ export default function AppointmentsScreen() {
   const [appointments, setAppointments] = useState<PatientAppointment[] | PsychologistAppointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [transcribingId, setTranscribingId] = useState<string | null>(null);
+  const [remindingId, setRemindingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!session) return;
@@ -99,7 +101,7 @@ export default function AppointmentsScreen() {
     } else {
       const { data } = await supabase
         .from('appointments')
-        .select('id, date, start_time, status, meet_link, patients(profiles(full_name))')
+        .select('id, date, start_time, status, meet_link, patient_id, patients(profiles(full_name))')
         .eq('psychologist_id', session!.user.id)
         .order('date', { ascending: true })
         .order('start_time', { ascending: true });
@@ -128,6 +130,28 @@ export default function AppointmentsScreen() {
         },
       ]
     );
+  }
+
+  async function handleSendReminder(item: PsychologistAppointment) {
+    const when = new Date(item.date + 'T12:00:00');
+    const message =
+      `Lembrete da sua consulta: ${DAYS[when.getDay()]}, ${when.getDate()} de ` +
+      `${MONTHS[when.getMonth()]} às ${item.start_time.slice(0, 5)}.`;
+
+    setRemindingId(item.id);
+    const { error } = await supabase.from('reminders').insert({
+      appointment_id: item.id,
+      psychologist_id: session!.user.id,
+      patient_id: item.patient_id,
+      message,
+    });
+    setRemindingId(null);
+
+    if (error) {
+      Alert.alert('Erro', 'Não foi possível enviar o lembrete. Tente novamente.');
+      return;
+    }
+    Alert.alert('Lembrete enviado', 'O paciente verá o aviso assim que estiver com o app aberto.');
   }
 
   function handleStartTranscription(id: string) {
@@ -200,6 +224,20 @@ export default function AppointmentsScreen() {
             onPress={() => handleCancel(item.id)}
           >
             <Text style={styles.cancelBtnText}>Cancelar consulta</Text>
+          </TouchableOpacity>
+        )}
+
+        {!isPatient && isScheduled && (
+          <TouchableOpacity
+            style={styles.reminderBtn}
+            disabled={remindingId === item.id}
+            onPress={() => handleSendReminder(item as PsychologistAppointment)}
+          >
+            {remindingId === item.id ? (
+              <ActivityIndicator color={colors.textDark} size="small" />
+            ) : (
+              <Text style={styles.reminderBtnText}>🔔 Enviar lembrete</Text>
+            )}
           </TouchableOpacity>
         )}
 
@@ -350,6 +388,21 @@ const styles = StyleSheet.create({
   },
   transcribeBtnText: {
     color: colors.primary,
+    fontSize: fontSize.sm,
+    fontWeight: '700',
+  },
+  reminderBtn: {
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 40,
+    backgroundColor: colors.background,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+  },
+  reminderBtnText: {
+    color: colors.textDark,
     fontSize: fontSize.sm,
     fontWeight: '700',
   },
