@@ -6,7 +6,12 @@
 // Secrets necessários:
 //   RECALL_API_KEY
 //   RECALL_REGION        (ex: us-west-2, us-east-1, eu-central-1)
-// (SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY são injetados automaticamente)
+// (SUPABASE_URL, SUPABASE_ANON_KEY e SUPABASE_SERVICE_ROLE_KEY são
+//  injetados automaticamente)
+//
+// Autorização: como esta função usa service_role (que ignora RLS), ela
+// própria verifica que quem chamou é o psicólogo da consulta. Sem isso,
+// qualquer usuário logado conseguiria gravar a sessão de um estranho.
 //
 // O webhook transcript.done é configurado no dashboard do Recall
 // apontando para a Edge Function recall-webhook.
@@ -31,6 +36,22 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Identifica quem chamou a partir do JWT. O verify_jwt garante apenas que
+    // existe algum usuário logado — quem é esse usuário precisa ser checado aqui.
+    const authHeader = req.headers.get('Authorization') ?? '';
+    const { data: caller } = await createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_ANON_KEY')!,
+      { global: { headers: { Authorization: authHeader } } },
+    ).auth.getUser();
+
+    if (!caller?.user) {
+      return new Response(JSON.stringify({ error: 'Não autenticado' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -42,7 +63,9 @@ Deno.serve(async (req) => {
       .eq('id', appointmentId)
       .single();
 
-    if (apptErr || !appt) {
+    // Só o psicólogo da consulta pode gravá-la. Mesma resposta para consulta
+    // inexistente e consulta de outra pessoa, para não revelar o que existe.
+    if (apptErr || !appt || appt.psychologist_id !== caller.user.id) {
       return new Response(JSON.stringify({ error: 'Consulta não encontrada' }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
